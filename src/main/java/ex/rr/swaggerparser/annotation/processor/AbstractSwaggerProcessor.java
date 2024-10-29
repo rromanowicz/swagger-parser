@@ -34,7 +34,8 @@ public abstract class AbstractSwaggerProcessor {
   protected void saveClassDefinitionToFile(Element element, TypeSpec definition) {
     try {
       PackageElement packageElement = this.processingEnv.getElementUtils().getPackageOf(element);
-      String packageName = packageElement.getQualifiedName().toString() + ".generated";
+      String packageName = packageElement.getQualifiedName().toString() + ".generated."
+          + element.getSimpleName().toString().toLowerCase();
 
       JavaFile javaFile = JavaFile.builder(packageName, definition).build();
       javaFile.writeTo(this.processingEnv.getFiler());
