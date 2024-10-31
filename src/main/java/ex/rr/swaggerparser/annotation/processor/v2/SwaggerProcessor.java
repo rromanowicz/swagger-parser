@@ -4,7 +4,6 @@ import static java.util.Objects.nonNull;
 
 import java.io.Serializable;
 import java.math.BigInteger;
-import java.net.http.HttpClient;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -17,15 +16,8 @@ import javax.lang.model.element.Modifier;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.function.client.WebClient;
 
-import com.palantir.javapoet.AnnotationSpec;
 import com.palantir.javapoet.ClassName;
-import com.palantir.javapoet.FieldSpec;
-import com.palantir.javapoet.MethodSpec;
-import com.palantir.javapoet.ParameterSpec;
 import com.palantir.javapoet.ParameterizedTypeName;
 import com.palantir.javapoet.TypeName;
 import com.palantir.javapoet.TypeSpec;
@@ -33,8 +25,6 @@ import com.palantir.javapoet.TypeSpec;
 import ex.rr.swaggerparser.annotation.SwaggerClient;
 import ex.rr.swaggerparser.annotation.processor.AbstractSwaggerProcessor;
 import io.swagger.models.Model;
-import io.swagger.models.Operation;
-import io.swagger.models.Response;
 import io.swagger.models.Swagger;
 import io.swagger.models.properties.ArrayProperty;
 import io.swagger.models.properties.BooleanProperty;
@@ -52,7 +42,6 @@ import io.swagger.models.properties.UUIDProperty;
 import io.swagger.parser.SwaggerParser;
 import lombok.Builder;
 import lombok.Data;
-import lombok.RequiredArgsConstructor;
 
 /**
  * SwaggerProcessor

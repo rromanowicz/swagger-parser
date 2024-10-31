@@ -19,6 +19,7 @@ import com.palantir.javapoet.ClassName;
 import com.palantir.javapoet.FieldSpec;
 import com.palantir.javapoet.MethodSpec;
 import com.palantir.javapoet.ParameterSpec;
+import com.palantir.javapoet.ParameterizedTypeName;
 import com.palantir.javapoet.TypeName;
 import com.palantir.javapoet.TypeSpec;
 
@@ -36,6 +37,7 @@ public class ClientGenerator {
 
   public static TypeSpec generateClientDefiinition(Element element, Swagger swagger) {
     var apiClient = TypeSpec.classBuilder(element.getSimpleName().toString() + "ApiClient");
+    apiClient.addModifiers(Modifier.PUBLIC);
     apiClient.addAnnotation(Slf4j.class);
     apiClient.addAnnotation(Component.class);
     apiClient.addAnnotation(RequiredArgsConstructor.class);
@@ -59,7 +61,9 @@ public class ClientGenerator {
             apiClient.addMethod(MethodSpec.methodBuilder(operation.getOperationId()).addModifiers(Modifier.PUBLIC)
                 .returns(resolveReturnType(operation.getResponses().values()))
                 .addParameters(prepareParameters(operation))
-                .addParameter(ParameterSpec.builder(Map.class, "headers").build())
+                // .addParameter(ParameterSpec.builder(Map.class, "headers").build())
+                .addParameter(ParameterSpec
+                    .builder(ParameterizedTypeName.get(Map.class, String.class, String.class), "headers").build())
                 .addStatement(
                     """
                         return apiClient.get(
