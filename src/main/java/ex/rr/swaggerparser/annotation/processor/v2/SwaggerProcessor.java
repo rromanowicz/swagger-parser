@@ -17,7 +17,10 @@ import javax.lang.model.element.Modifier;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.palantir.javapoet.AnnotationSpec;
 import com.palantir.javapoet.ClassName;
+import com.palantir.javapoet.FieldSpec;
 import com.palantir.javapoet.ParameterizedTypeName;
 import com.palantir.javapoet.TypeName;
 import com.palantir.javapoet.TypeSpec;
@@ -79,7 +82,15 @@ public class SwaggerProcessor extends AbstractSwaggerProcessor {
         .addSuperinterface(ClassName.get(Serializable.class))
         .addAnnotation(Data.class)
         .addAnnotation(Builder.class);
-    model.getProperties().forEach((k, v) -> def.addField(resolveType(v, k), k, Modifier.PRIVATE));
+    model.getProperties().forEach((k, v) -> {
+      var fieldAnnotation = AnnotationSpec.builder(JsonProperty.class).addMember("value", "\"$L\"", k);
+      if (v.getRequired()) {
+        fieldAnnotation.addMember("required", "$L", v.getRequired());
+      }
+      var field = FieldSpec.builder(resolveType(v, k), k, Modifier.PRIVATE)
+          .addAnnotation(fieldAnnotation.build());
+      def.addField(field.build());
+    });
 
     return def.build();
   }
