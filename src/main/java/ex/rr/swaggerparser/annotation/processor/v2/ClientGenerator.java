@@ -48,10 +48,12 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * ClientGenerator
+ * 
+ * @see ApiClient
  */
 public class ClientGenerator {
 
-  public static TypeSpec generateClientDefiinition(Element element, Swagger swagger) {
+  public TypeSpec generateClientDefiinition(Element element, Swagger swagger) {
     var apiClient = TypeSpec.classBuilder(element.getSimpleName().toString() + "ApiClient");
     apiClient.addModifiers(Modifier.PUBLIC);
     apiClient.addAnnotation(Slf4j.class);
@@ -82,7 +84,7 @@ public class ClientGenerator {
     return apiClient.build();
   }
 
-  private static MethodSpec genDef(String pathName, HttpMethod method, Operation operation) {
+  private MethodSpec genDef(String pathName, HttpMethod method, Operation operation) {
 
     var methodSpec = MethodSpec.methodBuilder(operation.getOperationId()).addModifiers(Modifier.PUBLIC)
         .returns(resolveReturnType(operation.getResponses().values()));
@@ -157,7 +159,7 @@ public class ClientGenerator {
     return methodSpec.build();
   }
 
-  private static TypeName getParamClass(BodyParameter p) {
+  private TypeName getParamClass(BodyParameter p) {
 
     return switch (p.getSchema()) {
       case ArrayModel m -> {
@@ -167,7 +169,7 @@ public class ClientGenerator {
     };
   }
 
-  private static ClassName resolveReturnType(Collection<Response> responses) {
+  private ClassName resolveReturnType(Collection<Response> responses) {
     return responses.stream()
         .filter(r -> Objects.nonNull(r.getResponseSchema()) && Objects.nonNull(r.getResponseSchema().getReference()))
         .findFirst()
@@ -175,12 +177,12 @@ public class ClientGenerator {
         .orElse(ClassName.get(HttpStatus.class));
   }
 
-  private static String resolveReferenceClassName(String reference) {
+  private String resolveReferenceClassName(String reference) {
     String[] arr = reference.split("/");
     return arr[arr.length - 1];
   }
 
-  private static String resolveModelRef(Model model) {
+  private String resolveModelRef(Model model) {
     var ref = switch (model) {
       case ArrayModel m -> ((RefProperty) m.getItems()).get$ref();
       default -> model.getReference();
@@ -189,12 +191,12 @@ public class ClientGenerator {
     return arr[arr.length - 1];
   }
 
-  private static Predicate<Collection<Parameter>> hasPathParams = it -> it.stream()
+  private Predicate<Collection<Parameter>> hasPathParams = it -> it.stream()
       .anyMatch(p -> TypeUtils.isInstance(p, PathParameter.class));
 
-  private static Predicate<Collection<Parameter>> hasQueryParams = it -> it.stream()
+  private Predicate<Collection<Parameter>> hasQueryParams = it -> it.stream()
       .anyMatch(p -> TypeUtils.isInstance(p, QueryParameter.class));
 
-  private static Predicate<Collection<Parameter>> hasFormParams = it -> it.stream()
+  private Predicate<Collection<Parameter>> hasFormParams = it -> it.stream()
       .anyMatch(p -> TypeUtils.isInstance(p, FormParameter.class));
 }

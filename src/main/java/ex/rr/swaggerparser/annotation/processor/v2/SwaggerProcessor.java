@@ -64,18 +64,15 @@ public class SwaggerProcessor extends AbstractSwaggerProcessor {
     this.element = element;
     final String location = element.getAnnotation(SwaggerClient.class).location();
     Swagger swagger = new SwaggerParser().read(location);
-    Map<String, Model> definitions = swagger.getDefinitions();
 
-    definitions.forEach((k, v) -> {
-      TypeSpec def = generateModelDefinitions(k, v);
-      saveClassDefinitionToFile(element, def);
-    });
+    swagger.getDefinitions()
+        .forEach(this::generateModelDefinitions);
 
-    TypeSpec clientDefiinition = ClientGenerator.generateClientDefiinition(element, swagger);
+    TypeSpec clientDefiinition = new ClientGenerator().generateClientDefiinition(element, swagger);
     saveClassDefinitionToFile(element, clientDefiinition);
   }
 
-  private TypeSpec generateModelDefinitions(String name, Model model) {
+  private void generateModelDefinitions(String name, Model model) {
     this.parentName = name;
     var def = TypeSpec.classBuilder(name)
         .addModifiers(Modifier.PUBLIC)
@@ -92,7 +89,7 @@ public class SwaggerProcessor extends AbstractSwaggerProcessor {
       def.addField(field.build());
     });
 
-    return def.build();
+    saveClassDefinitionToFile(element, def.build());
   }
 
   private TypeName resolveType(Property property, String name) {
