@@ -1,5 +1,7 @@
 package ex.rr.swaggerparser.demo;
 
+import java.util.Map;
+
 import org.springframework.stereotype.Service;
 
 /**
@@ -7,6 +9,8 @@ import org.springframework.stereotype.Service;
  */
 import ex.rr.swaggerparser.annotation.SwaggerClient;
 import ex.rr.swaggerparser.annotation.Type;
+import ex.rr.swaggerparser.demo.generated.petstore.Pet;
+import ex.rr.swaggerparser.demo.generated.petstore.PetStoreApiClient;
 import lombok.RequiredArgsConstructor;
 
 // @SwaggerClient(type = Type.OPENAPI3, location = "https://petstore3.swagger.io/api/v3/openapi.json")
@@ -15,10 +19,6 @@ import lombok.RequiredArgsConstructor;
 @Service
 public class PetStore {
 
-  // private final PetStoreApiClient apiClient;
-
-  // Pet getPet() {
-  // return apiClient.getPetById("1", Map.of());
-  // }
+  private final PetStoreApiClient apiClient;
 
 }

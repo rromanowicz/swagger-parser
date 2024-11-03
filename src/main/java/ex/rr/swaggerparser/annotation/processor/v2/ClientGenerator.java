@@ -2,20 +2,26 @@ package ex.rr.swaggerparser.annotation.processor.v2;
 
 import java.net.URI;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Predicate;
 
 import javax.lang.model.element.Element;
 import javax.lang.model.element.Modifier;
 
+import org.apache.commons.lang3.reflect.TypeUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.palantir.javapoet.AnnotationSpec;
 import com.palantir.javapoet.ClassName;
+import com.palantir.javapoet.CodeBlock;
 import com.palantir.javapoet.FieldSpec;
 import com.palantir.javapoet.MethodSpec;
 import com.palantir.javapoet.ParameterSpec;
@@ -24,9 +30,19 @@ import com.palantir.javapoet.TypeName;
 import com.palantir.javapoet.TypeSpec;
 
 import ex.rr.swaggerparser.apiclient.ApiClient;
+import io.swagger.models.ArrayModel;
+import io.swagger.models.HttpMethod;
+import io.swagger.models.Model;
 import io.swagger.models.Operation;
 import io.swagger.models.Response;
 import io.swagger.models.Swagger;
+import io.swagger.models.parameters.BodyParameter;
+import io.swagger.models.parameters.FormParameter;
+import io.swagger.models.parameters.HeaderParameter;
+import io.swagger.models.parameters.Parameter;
+import io.swagger.models.parameters.PathParameter;
+import io.swagger.models.parameters.QueryParameter;
+import io.swagger.models.properties.RefProperty;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -50,45 +66,15 @@ public class ClientGenerator {
 
     apiClient.addField(FieldSpec.builder(ApiClient.class, "apiClient", Modifier.PRIVATE, Modifier.FINAL).build());
 
-    apiClient.addMethod(uriBuilderMethod());
-
     swagger.getPaths().forEach((pathName, path) -> {
       path.getOperationMap().forEach((operationType, operation) -> {
         switch (operationType) {
-          case DELETE:
-            break;
-          case GET:
-            apiClient.addMethod(MethodSpec.methodBuilder(operation.getOperationId()).addModifiers(Modifier.PUBLIC)
-                .returns(resolveReturnType(operation.getResponses().values()))
-                .addParameters(prepareParameters(operation))
-                // .addParameter(ParameterSpec.builder(Map.class, "headers").build())
-                .addParameter(ParameterSpec
-                    .builder(ParameterizedTypeName.get(Map.class, String.class, String.class), "headers").build())
-                .addStatement(
-                    """
-                        return apiClient.get(
-                                          buildUri(\"$L\"),
-                                          headers,
-                                          new $T<$L>(){}
-                                        ) """,
-                    pathName,
-                    TypeReference.class,
-                    resolveReturnType(operation.getResponses().values()))
-
-                .build());
-            break;
-          case HEAD:
-            break;
-          case OPTIONS:
-            break;
-          case PATCH:
-            break;
-          case POST:
-            break;
-          case PUT:
-            break;
-          default:
-            break;
+          case GET, POST, PUT -> apiClient.addMethod(genDef(pathName, operationType, operation));
+          case PATCH -> {
+          }
+          case DELETE -> {
+          }
+          default -> throw new UnsupportedOperationException();
         }
       });
     });
@@ -96,9 +82,89 @@ public class ClientGenerator {
     return apiClient.build();
   }
 
-  private static Iterable<ParameterSpec> prepareParameters(Operation operation) {
-    return operation.getParameters().stream().map(it -> ParameterSpec.builder(String.class, it.getName()).build())
-        .toList();
+  private static MethodSpec genDef(String pathName, HttpMethod method, Operation operation) {
+
+    var methodSpec = MethodSpec.methodBuilder(operation.getOperationId()).addModifiers(Modifier.PUBLIC)
+        .returns(resolveReturnType(operation.getResponses().values()));
+
+    var methodBody = CodeBlock.builder()
+        .add("return apiClient.$L(", method.name().toLowerCase());
+    methodBody.add("""
+        $T.newInstance().uri($T.create(baseUrl)).path(\"$L\")
+        """,
+        UriComponentsBuilder.class, URI.class, pathName);
+
+    var paramMaps = CodeBlock.builder();
+
+    if (hasQueryParams.test(operation.getParameters())) {
+      paramMaps
+          .addStatement("$T queryParams = new $T<>()",
+              ParameterizedTypeName.get(MultiValueMap.class, String.class, String.class),
+              LinkedMultiValueMap.class);
+      methodBody.add(".queryParams(queryParams)");
+    }
+    methodBody.add(".build()");
+
+    if (hasPathParams.test(operation.getParameters())) {
+      paramMaps
+          .addStatement("$T pathParams = new $T<>()",
+              ParameterizedTypeName.get(Map.class, String.class, String.class),
+              HashMap.class);
+      methodBody.add(".expand(pathParams)");
+    }
+    methodBody.add(".toUri()");
+
+    operation.getParameters()
+        .forEach(param -> {
+          switch (param) {
+            case PathParameter p -> {
+              var field = ParameterSpec.builder(ClassName.get(String.class), param.getName()).build();
+              methodSpec.addParameter(field);
+              paramMaps.addStatement("pathParams.put(\"$1L\", $1L)", param.getName());
+
+            }
+            case BodyParameter p -> {
+              var field = ParameterSpec.builder(getParamClass(p), param.getName()).build();
+              methodSpec.addParameter(field);
+              methodBody.add(", $L", field.name());
+            }
+            case QueryParameter p -> {
+            }
+            case FormParameter p -> {
+            }
+            case HeaderParameter p -> {
+            }
+            default -> {
+            }
+          }
+          ;
+        });
+
+    if (hasFormParams.test(operation.getParameters())) {
+      methodBody.add(", formData");
+      methodSpec.addParameter(ParameterSpec
+          .builder(ParameterizedTypeName.get(Map.class, String.class, Object.class), "formData").build());
+    }
+
+    methodBody.addStatement(", headers, new $T<$L>(){})", TypeReference.class,
+        resolveReturnType(operation.getResponses().values()));
+
+    methodSpec.addParameter(ParameterSpec
+        .builder(ParameterizedTypeName.get(Map.class, String.class, String.class), "headers").build());
+    paramMaps.add("\n");
+    methodSpec.addCode(paramMaps.build());
+    methodSpec.addCode(methodBody.build());
+    return methodSpec.build();
+  }
+
+  private static TypeName getParamClass(BodyParameter p) {
+
+    return switch (p.getSchema()) {
+      case ArrayModel m -> {
+        yield ParameterizedTypeName.get(ClassName.get("java.util", "List"), ClassName.get("", resolveModelRef(m)));
+      }
+      default -> ClassName.get("", resolveModelRef(p.getSchema()));
+    };
   }
 
   private static ClassName resolveReturnType(Collection<Response> responses) {
@@ -114,12 +180,21 @@ public class ClientGenerator {
     return arr[arr.length - 1];
   }
 
-  private static MethodSpec uriBuilderMethod() {
-    return MethodSpec.methodBuilder("buildUri")
-        .returns(URI.class)
-        .addParameter(ParameterSpec.builder(String.class, "path").build())
-        .addStatement("return $T.newInstance().uri($T.create(baseUrl)).path(path).build().toUri()",
-            UriComponentsBuilder.class, URI.class)
-        .build();
+  private static String resolveModelRef(Model model) {
+    var ref = switch (model) {
+      case ArrayModel m -> ((RefProperty) m.getItems()).get$ref();
+      default -> model.getReference();
+    };
+    String[] arr = ref.split("/");
+    return arr[arr.length - 1];
   }
+
+  private static Predicate<Collection<Parameter>> hasPathParams = it -> it.stream()
+      .anyMatch(p -> TypeUtils.isInstance(p, PathParameter.class));
+
+  private static Predicate<Collection<Parameter>> hasQueryParams = it -> it.stream()
+      .anyMatch(p -> TypeUtils.isInstance(p, QueryParameter.class));
+
+  private static Predicate<Collection<Parameter>> hasFormParams = it -> it.stream()
+      .anyMatch(p -> TypeUtils.isInstance(p, FormParameter.class));
 }
