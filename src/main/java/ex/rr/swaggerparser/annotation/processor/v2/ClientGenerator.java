@@ -29,6 +29,8 @@ import com.palantir.javapoet.ParameterizedTypeName;
 import com.palantir.javapoet.TypeName;
 import com.palantir.javapoet.TypeSpec;
 
+import ex.rr.swaggerparser.annotation.Format;
+import ex.rr.swaggerparser.annotation.SwaggerClient;
 import ex.rr.swaggerparser.apiclient.ApiClient;
 import io.swagger.models.ArrayModel;
 import io.swagger.models.HttpMethod;
@@ -53,7 +55,10 @@ import lombok.extern.slf4j.Slf4j;
  */
 public class ClientGenerator {
 
+  private Format format;
+
   public TypeSpec generateClientDefiinition(Element element, Swagger swagger) {
+    format = element.getAnnotation(SwaggerClient.class).format();
     var apiClient = TypeSpec.classBuilder(element.getSimpleName().toString() + "ApiClient");
     apiClient.addModifiers(Modifier.PUBLIC);
     apiClient.addAnnotation(Slf4j.class);
@@ -179,7 +184,7 @@ public class ClientGenerator {
 
   private String resolveReferenceClassName(String reference) {
     String[] arr = reference.split("/");
-    return arr[arr.length - 1];
+    return String.format("%s%s", (format == Format.RECORD) ? "Model." : "", arr[arr.length - 1]);
   }
 
   private String resolveModelRef(Model model) {
@@ -188,7 +193,7 @@ public class ClientGenerator {
       default -> model.getReference();
     };
     String[] arr = ref.split("/");
-    return arr[arr.length - 1];
+    return String.format("%s%s", (format == Format.RECORD) ? "Model." : "", arr[arr.length - 1]);
   }
 
   private Predicate<Collection<Parameter>> hasPathParams = it -> it.stream()

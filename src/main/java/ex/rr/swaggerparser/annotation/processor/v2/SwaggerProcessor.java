@@ -21,10 +21,13 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.palantir.javapoet.AnnotationSpec;
 import com.palantir.javapoet.ClassName;
 import com.palantir.javapoet.FieldSpec;
+import com.palantir.javapoet.MethodSpec;
+import com.palantir.javapoet.ParameterSpec;
 import com.palantir.javapoet.ParameterizedTypeName;
 import com.palantir.javapoet.TypeName;
 import com.palantir.javapoet.TypeSpec;
 
+import ex.rr.swaggerparser.annotation.Format;
 import ex.rr.swaggerparser.annotation.SwaggerClient;
 import ex.rr.swaggerparser.annotation.processor.AbstractSwaggerProcessor;
 import io.swagger.models.Model;
@@ -52,6 +55,7 @@ import lombok.Data;
 public class SwaggerProcessor extends AbstractSwaggerProcessor {
 
   private Element element;
+  private Format format;
   private String parentName;
 
   public SwaggerProcessor(ProcessingEnvironment processingEnvironment) {
@@ -63,22 +67,46 @@ public class SwaggerProcessor extends AbstractSwaggerProcessor {
   public void process(Element element) {
     this.element = element;
     final String location = element.getAnnotation(SwaggerClient.class).location();
+    format = element.getAnnotation(SwaggerClient.class).format();
     Swagger swagger = new SwaggerParser().read(location);
 
-    swagger.getDefinitions()
-        .forEach(this::generateModelDefinitions);
+    var definitions = swagger.getDefinitions().entrySet().stream()
+        .map(entry -> generateModelDefinitions(entry.getKey(), entry.getValue()))
+        .toList();
+
+    switch (format) {
+      case POJO -> definitions.forEach(def -> saveClassDefinitionToFile(element, def));
+      case RECORD -> {
+        TypeSpec modelDef = TypeSpec.interfaceBuilder("Model")
+            .addModifiers(Modifier.PUBLIC)
+            .addTypes(definitions)
+            .build();
+        saveClassDefinitionToFile(element, modelDef);
+      }
+    }
 
     TypeSpec clientDefiinition = new ClientGenerator().generateClientDefiinition(element, swagger);
     saveClassDefinitionToFile(element, clientDefiinition);
   }
 
-  private void generateModelDefinitions(String name, Model model) {
+  private TypeSpec generateModelDefinitions(String name, Model model) {
     this.parentName = name;
-    var def = TypeSpec.classBuilder(name)
+
+    var def = switch (format) {
+      case POJO -> generatePOJODefinition(name, model);
+      case RECORD -> generateRecordDefinition(name, model);
+    };
+
+    return def;
+  }
+
+  private TypeSpec generatePOJODefinition(String name, Model model) {
+    var pojo = TypeSpec.classBuilder(name)
         .addModifiers(Modifier.PUBLIC)
         .addSuperinterface(ClassName.get(Serializable.class))
         .addAnnotation(Data.class)
         .addAnnotation(Builder.class);
+
     model.getProperties().forEach((k, v) -> {
       var fieldAnnotation = AnnotationSpec.builder(JsonProperty.class).addMember("value", "\"$L\"", k);
       if (v.getRequired()) {
@@ -86,10 +114,31 @@ public class SwaggerProcessor extends AbstractSwaggerProcessor {
       }
       var field = FieldSpec.builder(resolveType(v, k), k, Modifier.PRIVATE)
           .addAnnotation(fieldAnnotation.build());
-      def.addField(field.build());
+      pojo.addField(field.build());
     });
 
-    saveClassDefinitionToFile(element, def.build());
+    return pojo.build();
+  }
+
+  private TypeSpec generateRecordDefinition(String name, Model model) {
+    var recordConstructor = MethodSpec.methodBuilder(name);
+    var record = TypeSpec.recordBuilder(name)
+        .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+        .addAnnotation(Builder.class);
+
+    model.getProperties().forEach((k, v) -> {
+      var fieldAnnotation = AnnotationSpec.builder(JsonProperty.class).addMember("value", "\"$L\"", k);
+      if (v.getRequired()) {
+        fieldAnnotation.addMember("required", "$L", v.getRequired());
+      }
+      var field = ParameterSpec.builder(resolveType(v, k), k)
+          .addAnnotation(fieldAnnotation.build());
+      recordConstructor.addParameter(field.build());
+    });
+
+    record.recordConstructor(recordConstructor.build());
+
+    return record.build();
   }
 
   private TypeName resolveType(Property property, String name) {
