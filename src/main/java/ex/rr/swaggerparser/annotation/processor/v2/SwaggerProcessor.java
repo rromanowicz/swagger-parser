@@ -6,7 +6,9 @@ import java.io.Serializable;
 import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -57,6 +59,8 @@ public class SwaggerProcessor extends AbstractSwaggerProcessor {
   private Element element;
   private Format format;
   private String parentName;
+  private List<TypeSpec> definitions = new ArrayList<>();
+  private List<TypeSpec> enumDefinitions = new ArrayList<>();
 
   public SwaggerProcessor(ProcessingEnvironment processingEnvironment) {
     super();
@@ -70,9 +74,10 @@ public class SwaggerProcessor extends AbstractSwaggerProcessor {
     format = element.getAnnotation(SwaggerClient.class).format();
     Swagger swagger = new SwaggerParser().read(location);
 
-    var definitions = swagger.getDefinitions().entrySet().stream()
-        .map(entry -> generateModelDefinitions(entry.getKey(), entry.getValue()))
-        .toList();
+    swagger.getDefinitions().entrySet().stream()
+        .forEach(entry -> generateModelDefinitions(entry.getKey(), entry.getValue()));
+
+    definitions.addAll(enumDefinitions);
 
     switch (format) {
       case POJO -> definitions.forEach(def -> saveClassDefinitionToFile(element, def));
@@ -89,7 +94,7 @@ public class SwaggerProcessor extends AbstractSwaggerProcessor {
     saveClassDefinitionToFile(element, clientDefiinition);
   }
 
-  private TypeSpec generateModelDefinitions(String name, Model model) {
+  private void generateModelDefinitions(String name, Model model) {
     this.parentName = name;
 
     var def = switch (format) {
@@ -97,7 +102,7 @@ public class SwaggerProcessor extends AbstractSwaggerProcessor {
       case RECORD -> generateRecordDefinition(name, model);
     };
 
-    return def;
+    definitions.add(def);
   }
 
   private TypeSpec generatePOJODefinition(String name, Model model) {
@@ -108,12 +113,11 @@ public class SwaggerProcessor extends AbstractSwaggerProcessor {
         .addAnnotation(Builder.class);
 
     model.getProperties().forEach((k, v) -> {
-      var fieldAnnotation = AnnotationSpec.builder(JsonProperty.class).addMember("value", "\"$L\"", k);
-      if (v.getRequired()) {
-        fieldAnnotation.addMember("required", "$L", v.getRequired());
+      var field = FieldSpec.builder(resolveType(v, k), k.replaceAll("[^a-zA-Z0-9]", ""), Modifier.PRIVATE);
+      var fieldAnnotation = getPropertyAnnotation(name, v.getRequired());
+      if (!fieldAnnotation.members().isEmpty()) {
+        field.addAnnotation(fieldAnnotation);
       }
-      var field = FieldSpec.builder(resolveType(v, k), k, Modifier.PRIVATE)
-          .addAnnotation(fieldAnnotation.build());
       pojo.addField(field.build());
     });
 
@@ -127,18 +131,29 @@ public class SwaggerProcessor extends AbstractSwaggerProcessor {
         .addAnnotation(Builder.class);
 
     model.getProperties().forEach((k, v) -> {
-      var fieldAnnotation = AnnotationSpec.builder(JsonProperty.class).addMember("value", "\"$L\"", k);
-      if (v.getRequired()) {
-        fieldAnnotation.addMember("required", "$L", v.getRequired());
+      var field = ParameterSpec.builder(resolveType(v, k), k.replaceAll("[^a-zA-Z0-9]", ""));
+      var fieldAnnotation = getPropertyAnnotation(name, v.getRequired());
+      if (!fieldAnnotation.members().isEmpty()) {
+        field.addAnnotation(fieldAnnotation);
       }
-      var field = ParameterSpec.builder(resolveType(v, k), k)
-          .addAnnotation(fieldAnnotation.build());
       recordConstructor.addParameter(field.build());
     });
 
     record.recordConstructor(recordConstructor.build());
 
     return record.build();
+  }
+
+  private AnnotationSpec getPropertyAnnotation(String name, boolean required) {
+    var cleanName = name.replaceAll("[^a-zA-Z0-9]", "");
+    var fieldAnnotation = AnnotationSpec.builder(JsonProperty.class);
+    if (!name.equals(cleanName)) {
+      fieldAnnotation.addMember("value", "\"$L\"", name);
+    }
+    if (required) {
+      fieldAnnotation.addMember("required", "$L", required);
+    }
+    return fieldAnnotation.build();
   }
 
   private TypeName resolveType(Property property, String name) {
@@ -192,9 +207,9 @@ public class SwaggerProcessor extends AbstractSwaggerProcessor {
   private ClassName generateEnumDefinition(String name, Collection<String> values) {
     String enumName = String.format("%s%s", StringUtils.capitalize(parentName), StringUtils.capitalize(name));
     TypeSpec.Builder enumDef = TypeSpec.enumBuilder(enumName)
-        .addModifiers(Modifier.PUBLIC);
+        .addModifiers(Modifier.PUBLIC, Modifier.STATIC);
     values.forEach(v -> enumDef.addEnumConstant(v));
-    saveClassDefinitionToFile(this.element, enumDef.build());
+    enumDefinitions.add(enumDef.build());
     return ClassName.get("", enumName);
   }
 

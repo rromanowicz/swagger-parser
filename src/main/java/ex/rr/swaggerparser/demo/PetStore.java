@@ -12,7 +12,7 @@ import ex.rr.swaggerparser.demo.generated.petstore.PetStoreApiClient;
 import lombok.RequiredArgsConstructor;
 
 // @SwaggerClient(type = Type.OPENAPI3, location = "https://petstore3.swagger.io/api/v3/openapi.json")
-@SwaggerClient(type = Type.SWAGGER, format = Format.POJO, location = "http://petstore.swagger.io/v2/swagger.json")
+@SwaggerClient(type = Type.SWAGGER, format = Format.RECORD, location = "http://petstore.swagger.io/v2/swagger.json")
 @RequiredArgsConstructor
 @Service
 public class PetStore {
