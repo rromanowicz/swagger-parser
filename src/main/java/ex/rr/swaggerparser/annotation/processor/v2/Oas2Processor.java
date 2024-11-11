@@ -7,7 +7,6 @@ import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -51,25 +50,17 @@ import io.swagger.parser.SwaggerParser;
 import lombok.Builder;
 import lombok.Data;
 
-/**
- * SwaggerProcessor
- */
-public class SwaggerProcessor extends AbstractSwaggerProcessor {
+public class Oas2Processor extends AbstractSwaggerProcessor {
 
-  private Element element;
-  private Format format;
   private String parentName;
-  private List<TypeSpec> definitions = new ArrayList<>();
-  private List<TypeSpec> enumDefinitions = new ArrayList<>();
 
-  public SwaggerProcessor(ProcessingEnvironment processingEnvironment) {
+  public Oas2Processor(ProcessingEnvironment processingEnvironment) {
     super();
     super.init(processingEnvironment);
   }
 
   @Override
   public void process(Element element) {
-    this.element = element;
     final String location = element.getAnnotation(SwaggerClient.class).location();
     format = element.getAnnotation(SwaggerClient.class).format();
     Swagger swagger = new SwaggerParser().read(location);
@@ -77,20 +68,9 @@ public class SwaggerProcessor extends AbstractSwaggerProcessor {
     swagger.getDefinitions().entrySet().stream()
         .forEach(entry -> generateModelDefinitions(entry.getKey(), entry.getValue()));
 
-    definitions.addAll(enumDefinitions);
+    super.persistDefinitions(element);
 
-    switch (format) {
-      case POJO -> definitions.forEach(def -> saveClassDefinitionToFile(element, def));
-      case RECORD -> {
-        TypeSpec modelDef = TypeSpec.interfaceBuilder("Model")
-            .addModifiers(Modifier.PUBLIC)
-            .addTypes(definitions)
-            .build();
-        saveClassDefinitionToFile(element, modelDef);
-      }
-    }
-
-    TypeSpec clientDefiinition = new ClientGenerator().generateClientDefiinition(element, swagger);
+    TypeSpec clientDefiinition = new Oas2ClientGenerator().generateClientDefiinition(element, swagger);
     saveClassDefinitionToFile(element, clientDefiinition);
   }
 
@@ -102,7 +82,7 @@ public class SwaggerProcessor extends AbstractSwaggerProcessor {
       case RECORD -> generateRecordDefinition(name, model);
     };
 
-    definitions.add(def);
+    definitions.put(name, def);
   }
 
   private TypeSpec generatePOJODefinition(String name, Model model) {
@@ -204,12 +184,12 @@ public class SwaggerProcessor extends AbstractSwaggerProcessor {
     return arr[arr.length - 1];
   }
 
-  private ClassName generateEnumDefinition(String name, Collection<String> values) {
+  private ClassName generateEnumDefinition(String name, Iterable<String> values) {
     String enumName = String.format("%s%s", StringUtils.capitalize(parentName), StringUtils.capitalize(name));
     TypeSpec.Builder enumDef = TypeSpec.enumBuilder(enumName)
         .addModifiers(Modifier.PUBLIC, Modifier.STATIC);
     values.forEach(v -> enumDef.addEnumConstant(v));
-    enumDefinitions.add(enumDef.build());
+    enumDefinitions.put(enumName, enumDef.build());
     return ClassName.get("", enumName);
   }
 

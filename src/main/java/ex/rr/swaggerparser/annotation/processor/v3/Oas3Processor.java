@@ -5,6 +5,7 @@ import static java.util.Objects.nonNull;
 import java.io.Serializable;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -14,6 +15,8 @@ import javax.annotation.processing.ProcessingEnvironment;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.Modifier;
 import javax.tools.Diagnostic;
+
+import org.apache.commons.lang3.StringUtils;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.palantir.javapoet.AnnotationSpec;
@@ -41,7 +44,6 @@ import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.media.StringSchema;
 import io.swagger.v3.oas.models.media.UUIDSchema;
 import io.swagger.v3.parser.core.models.ParseOptions;
-import io.swagger.v3.parser.core.models.SwaggerParseResult;
 import lombok.Builder;
 import lombok.Data;
 
@@ -49,14 +51,11 @@ import lombok.Data;
  * OpenApiV3Processor
  */
 @SuppressWarnings({ "unchecked", "rawtypes" })
-public class OpenApiV3Processor extends AbstractSwaggerProcessor {
+public class Oas3Processor extends AbstractSwaggerProcessor {
 
-  private Format format;
   private String parentName;
-  private Map<String, TypeSpec> definitions = new HashMap<>();
-  private Map<String, TypeSpec> enumDefinitions = new HashMap<>();
 
-  public OpenApiV3Processor(ProcessingEnvironment processingEnvironment) {
+  public Oas3Processor(ProcessingEnvironment processingEnvironment) {
     super();
     super.init(processingEnvironment);
   }
@@ -69,34 +68,17 @@ public class OpenApiV3Processor extends AbstractSwaggerProcessor {
       final String location = element.getAnnotation(SwaggerClient.class).location();
       format = element.getAnnotation(SwaggerClient.class).format();
       ParseOptions parseOptions = new ParseOptions();
-      parseOptions.setResolve(true); // implicit
-      parseOptions.setResolveFully(true);
 
-      SwaggerParseResult result = new OpenAPIParser().readLocation(location, null, parseOptions);
-      openApi = result.getOpenAPI();
+      openApi = new OpenAPIParser().readLocation(location, null, parseOptions).getOpenAPI();
 
       openApi.getComponents().getSchemas().entrySet().stream()
           .forEach(entry -> generateModelDefinitions(entry.getKey(), entry.getValue()));
 
-      var defs = Stream.concat(definitions.entrySet().stream().map(it -> it.getValue()),
-          enumDefinitions.entrySet().stream().map(it -> it.getValue())).toList();
-
-      switch (format) {
-        case POJO -> defs.forEach(def -> saveClassDefinitionToFile(element, def));
-        case RECORD -> {
-          TypeSpec modelDef = TypeSpec.interfaceBuilder("Model")
-              .addModifiers(Modifier.PUBLIC)
-              .addTypes(defs)
-              .build();
-          saveClassDefinitionToFile(element, modelDef);
-        }
-      }
-
+      super.persistDefinitions(element);
     } catch (Exception e) {
       messager.printMessage(Diagnostic.Kind.ERROR, "Error fetching Swagger API Metadata.");
       throw e;
     }
-
   }
 
   private void generateModelDefinitions(String name, Schema schema) {
@@ -120,7 +102,7 @@ public class OpenApiV3Processor extends AbstractSwaggerProcessor {
     Map<String, Schema> properties = schema.getProperties();
 
     properties.forEach((k, v) -> {
-      var field = FieldSpec.builder(resolveType(v), k.replaceAll("[^a-zA-Z0-9]", ""), Modifier.PRIVATE);
+      var field = FieldSpec.builder(resolveType(k, v), k.replaceAll("[^a-zA-Z0-9]", ""), Modifier.PRIVATE);
       var fieldAnnotation = getPropertyAnnotation(k, nonNull(v.getRequired()) && v.getRequired().contains(k));
       if (!fieldAnnotation.members().isEmpty()) {
         field.addAnnotation(fieldAnnotation);
@@ -139,7 +121,7 @@ public class OpenApiV3Processor extends AbstractSwaggerProcessor {
 
     Map<String, Schema> properties = schema.getProperties();
     properties.forEach((k, v) -> {
-      var field = ParameterSpec.builder(resolveType(v), k.replaceAll("[^a-zA-Z0-9]", ""));
+      var field = ParameterSpec.builder(resolveType(k, v), k.replaceAll("[^a-zA-Z0-9]", ""));
       var fieldAnnotation = getPropertyAnnotation(k, nonNull(v.getRequired()) && v.getRequired().contains(v));
       if (!fieldAnnotation.members().isEmpty()) {
         field.addAnnotation(fieldAnnotation);
@@ -162,19 +144,22 @@ public class OpenApiV3Processor extends AbstractSwaggerProcessor {
     return fieldAnnotation.build();
   }
 
-  private TypeName resolveType(Schema<?> schema) {
+  private TypeName resolveType(String name, Schema<?> schema) {
     if (nonNull(schema.get$ref())) {
-      ClassName.get("", resolveReferenceClassName(schema.get$ref()));
+      return ClassName.get("", resolveReferenceClassName(schema.get$ref()));
+    }
+    if (nonNull(schema.getEnum())) {
+      return generateEnumDefinition(name, schema.getEnum());
     }
 
     return switch (schema) {
       case ArraySchema p -> {
         if (nonNull(p.getUniqueItems()) && p.getUniqueItems()) {
           yield ParameterizedTypeName.get(ClassName.get("java.util", "Set"),
-              resolveType(p.getItems()));
+              resolveType(name, p.getItems()));
         } else {
           yield ParameterizedTypeName.get(ClassName.get("java.util", "List"),
-              resolveType(p.getItems()));
+              resolveType(name, p.getItems()));
         }
       }
       case BooleanSchema p -> TypeName.get(Boolean.class);
@@ -193,7 +178,6 @@ public class OpenApiV3Processor extends AbstractSwaggerProcessor {
       case DateTimeSchema p -> TypeName.get(LocalDateTime.class);
       case UUIDSchema p -> TypeName.get(UUID.class);
       case MapSchema p -> TypeName.get(Map.class);
-      // case ObjectSchema p ->
       default -> TypeName.get(String.class);
 
     };
@@ -204,4 +188,12 @@ public class OpenApiV3Processor extends AbstractSwaggerProcessor {
     return arr[arr.length - 1];
   }
 
+  private <T> ClassName generateEnumDefinition(String name, Collection<T> values) {
+    String enumName = String.format("%s%s", StringUtils.capitalize(parentName), StringUtils.capitalize(name));
+    TypeSpec.Builder enumDef = TypeSpec.enumBuilder(enumName)
+        .addModifiers(Modifier.PUBLIC, Modifier.STATIC);
+    values.forEach(v -> enumDef.addEnumConstant(String.valueOf(v)));
+    enumDefinitions.put(enumName, enumDef.build());
+    return ClassName.get("", enumName);
+  }
 }

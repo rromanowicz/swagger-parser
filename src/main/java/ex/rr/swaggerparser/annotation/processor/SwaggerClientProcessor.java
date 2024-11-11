@@ -16,24 +16,24 @@ import javax.lang.model.element.TypeElement;
 import javax.tools.Diagnostic;
 
 import ex.rr.swaggerparser.annotation.SwaggerClient;
-import ex.rr.swaggerparser.annotation.processor.v2.SwaggerProcessor;
-import ex.rr.swaggerparser.annotation.processor.v3.OpenApiV3Processor;
+import ex.rr.swaggerparser.annotation.processor.v2.Oas2Processor;
+import ex.rr.swaggerparser.annotation.processor.v3.Oas3Processor;
 
 @SupportedAnnotationTypes("ex.rr.swaggerparser.annotation.SwaggerClient")
 @SupportedSourceVersion(SourceVersion.RELEASE_17)
 public class SwaggerClientProcessor extends AbstractProcessor {
   protected Messager messager;
   protected Filer filer;
-  protected SwaggerProcessor v2Processor;
-  protected OpenApiV3Processor v3Processor;
+  protected Oas2Processor v2Processor;
+  protected Oas3Processor v3Processor;
 
   @Override
   public synchronized void init(ProcessingEnvironment pEnv) {
     super.init(pEnv);
     filer = pEnv.getFiler();
     messager = pEnv.getMessager();
-    v2Processor = new SwaggerProcessor(pEnv);
-    v3Processor = new OpenApiV3Processor(pEnv);
+    v2Processor = new Oas2Processor(pEnv);
+    v3Processor = new Oas3Processor(pEnv);
   }
 
   @Override
@@ -44,8 +44,8 @@ public class SwaggerClientProcessor extends AbstractProcessor {
         return true;
       }
       switch (element.getAnnotation(SwaggerClient.class).type()) {
-        case OPENAPI3 -> v3Processor.process(element);
-        case SWAGGER -> v2Processor.process(element);
+        case OAS3 -> v3Processor.process(element);
+        case OAS2 -> v2Processor.process(element);
         default -> throw new UnsupportedOperationException();
       }
     }

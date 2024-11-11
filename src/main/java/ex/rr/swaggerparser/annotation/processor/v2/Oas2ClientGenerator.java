@@ -49,11 +49,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * ClientGenerator
- * 
  * @see ApiClient
  */
-public class ClientGenerator {
+public class Oas2ClientGenerator {
 
   private Format format;
 
