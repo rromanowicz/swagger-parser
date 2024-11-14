@@ -6,8 +6,6 @@ import java.io.Serializable;
 import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -28,7 +26,6 @@ import com.palantir.javapoet.ParameterizedTypeName;
 import com.palantir.javapoet.TypeName;
 import com.palantir.javapoet.TypeSpec;
 
-import ex.rr.swaggerparser.annotation.Format;
 import ex.rr.swaggerparser.annotation.SwaggerClient;
 import ex.rr.swaggerparser.annotation.processor.AbstractSwaggerProcessor;
 import io.swagger.models.Model;

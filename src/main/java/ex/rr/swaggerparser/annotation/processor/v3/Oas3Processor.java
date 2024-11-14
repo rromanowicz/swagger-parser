@@ -6,10 +6,9 @@ import java.io.Serializable;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Stream;
 
 import javax.annotation.processing.ProcessingEnvironment;
 import javax.lang.model.element.Element;
@@ -28,7 +27,6 @@ import com.palantir.javapoet.ParameterizedTypeName;
 import com.palantir.javapoet.TypeName;
 import com.palantir.javapoet.TypeSpec;
 
-import ex.rr.swaggerparser.annotation.Format;
 import ex.rr.swaggerparser.annotation.SwaggerClient;
 import ex.rr.swaggerparser.annotation.processor.AbstractSwaggerProcessor;
 import io.swagger.parser.OpenAPIParser;
@@ -40,6 +38,7 @@ import io.swagger.v3.oas.models.media.DateTimeSchema;
 import io.swagger.v3.oas.models.media.IntegerSchema;
 import io.swagger.v3.oas.models.media.MapSchema;
 import io.swagger.v3.oas.models.media.NumberSchema;
+import io.swagger.v3.oas.models.media.ObjectSchema;
 import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.media.StringSchema;
 import io.swagger.v3.oas.models.media.UUIDSchema;
@@ -47,9 +46,6 @@ import io.swagger.v3.parser.core.models.ParseOptions;
 import lombok.Builder;
 import lombok.Data;
 
-/**
- * OpenApiV3Processor
- */
 @SuppressWarnings({ "unchecked", "rawtypes" })
 public class Oas3Processor extends AbstractSwaggerProcessor {
 
@@ -81,7 +77,7 @@ public class Oas3Processor extends AbstractSwaggerProcessor {
     }
   }
 
-  private void generateModelDefinitions(String name, Schema schema) {
+  private TypeSpec generateModelDefinitions(String name, Schema schema) {
     this.parentName = name;
 
     var def = switch (format) {
@@ -90,6 +86,7 @@ public class Oas3Processor extends AbstractSwaggerProcessor {
     };
 
     definitions.put(name, def);
+    return def;
   }
 
   private TypeSpec generatePOJODefinition(String name, Schema<?> schema) {
@@ -99,16 +96,18 @@ public class Oas3Processor extends AbstractSwaggerProcessor {
         .addAnnotation(Data.class)
         .addAnnotation(Builder.class);
 
-    Map<String, Schema> properties = schema.getProperties();
-
-    properties.forEach((k, v) -> {
-      var field = FieldSpec.builder(resolveType(k, v), k.replaceAll("[^a-zA-Z0-9]", ""), Modifier.PRIVATE);
-      var fieldAnnotation = getPropertyAnnotation(k, nonNull(v.getRequired()) && v.getRequired().contains(k));
-      if (!fieldAnnotation.members().isEmpty()) {
-        field.addAnnotation(fieldAnnotation);
-      }
-      pojo.addField(field.build());
-    });
+    if (nonNull(schema.getProperties()) && !schema.getProperties().isEmpty()) {
+      Map<String, Schema> properties = schema.getProperties();
+      properties.forEach((k, v) -> {
+        var fieldName = (k.startsWith("@")) ? "at" + StringUtils.capitalize(k.replaceAll("@", "")) : k;
+        var field = FieldSpec.builder(resolveType(k, v), fieldName.replaceAll("[^a-zA-Z0-9]", ""), Modifier.PRIVATE);
+        var fieldAnnotation = getPropertyAnnotation(k, nonNull(v.getRequired()) && v.getRequired().contains(k));
+        if (!fieldAnnotation.members().isEmpty()) {
+          field.addAnnotation(fieldAnnotation);
+        }
+        pojo.addField(field.build());
+      });
+    }
 
     return pojo.build();
   }
@@ -119,16 +118,19 @@ public class Oas3Processor extends AbstractSwaggerProcessor {
         .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
         .addAnnotation(Builder.class);
 
-    Map<String, Schema> properties = schema.getProperties();
-    properties.forEach((k, v) -> {
-      var field = ParameterSpec.builder(resolveType(k, v), k.replaceAll("[^a-zA-Z0-9]", ""));
-      var fieldAnnotation = getPropertyAnnotation(k, nonNull(v.getRequired()) && v.getRequired().contains(v));
-      if (!fieldAnnotation.members().isEmpty()) {
-        field.addAnnotation(fieldAnnotation);
-      }
-      recordConstructor.addParameter(field.build());
-    });
-    record.recordConstructor(recordConstructor.build());
+    if (nonNull(schema.getProperties()) && !schema.getProperties().isEmpty()) {
+      Map<String, Schema> properties = schema.getProperties();
+      properties.forEach((k, v) -> {
+        var fieldName = (k.startsWith("@")) ? "at" + StringUtils.capitalize(k.replaceAll("@", "")) : k;
+        var field = ParameterSpec.builder(resolveType(k, v), fieldName.replaceAll("[^a-zA-Z0-9]", ""));
+        var fieldAnnotation = getPropertyAnnotation(k, nonNull(v.getRequired()) && v.getRequired().contains(v));
+        if (!fieldAnnotation.members().isEmpty()) {
+          field.addAnnotation(fieldAnnotation);
+        }
+        recordConstructor.addParameter(field.build());
+      });
+      record.recordConstructor(recordConstructor.build());
+    }
     return record.build();
   }
 
@@ -164,7 +166,7 @@ public class Oas3Processor extends AbstractSwaggerProcessor {
       }
       case BooleanSchema p -> TypeName.get(Boolean.class);
       case StringSchema p -> TypeName.get(String.class);
-      case IntegerSchema p -> switch (p.getFormat()) {
+      case IntegerSchema p -> switch (Optional.ofNullable(p.getFormat()).orElse("")) {
         case "int64" -> TypeName.get(Long.class);
         case "int32" -> TypeName.get(Integer.class);
         default -> TypeName.get(Integer.class);
@@ -178,6 +180,7 @@ public class Oas3Processor extends AbstractSwaggerProcessor {
       case DateTimeSchema p -> TypeName.get(LocalDateTime.class);
       case UUIDSchema p -> TypeName.get(UUID.class);
       case MapSchema p -> TypeName.get(Map.class);
+      case ObjectSchema p -> ClassName.get("", generateModelDefinitions(name, p).name());
       default -> TypeName.get(String.class);
 
     };
@@ -189,10 +192,14 @@ public class Oas3Processor extends AbstractSwaggerProcessor {
   }
 
   private <T> ClassName generateEnumDefinition(String name, Collection<T> values) {
-    String enumName = String.format("%s%s", StringUtils.capitalize(parentName), StringUtils.capitalize(name));
+    var fieldName = (name.startsWith("@")) ? "at" + StringUtils.capitalize(name.replaceAll("@", "")) : name;
+    String enumName = String.format("%s%s", StringUtils.capitalize(parentName), StringUtils.capitalize(fieldName));
     TypeSpec.Builder enumDef = TypeSpec.enumBuilder(enumName)
         .addModifiers(Modifier.PUBLIC, Modifier.STATIC);
-    values.forEach(v -> enumDef.addEnumConstant(String.valueOf(v)));
+    values.forEach(v -> {
+      String enumVal = String.valueOf(v).replaceAll("[^a-zA-Z0-9]", "");
+      enumDef.addEnumConstant(enumVal);
+    });
     enumDefinitions.put(enumName, enumDef.build());
     return ClassName.get("", enumName);
   }
