@@ -69,8 +69,19 @@ public class Oas3Processor extends AbstractSwaggerProcessor {
 
       openApi.getComponents().getSchemas().entrySet().stream()
           .forEach(entry -> generateModelDefinitions(entry.getKey(), entry.getValue()));
+      openApi.getComponents().getRequestBodies().entrySet().stream()
+          .forEach(entry -> generateModelDefinitions(entry.getKey(),
+              entry.getValue().getContent().get("application/json").getSchema()));
+      if (nonNull(openApi.getComponents().getResponses()) && !openApi.getComponents().getResponses().isEmpty()) {
+        openApi.getComponents().getResponses().entrySet().stream()
+            .forEach(entry -> generateModelDefinitions(entry.getKey(),
+                entry.getValue().getContent().get("json").getSchema()));
+      }
 
       super.persistDefinitions(element);
+
+      TypeSpec clientDefiinition = new Oas3ClientGenerator().generateClientDefiinition(element, openApi);
+      saveClassDefinitionToFile(element, clientDefiinition);
     } catch (Exception e) {
       messager.printMessage(Diagnostic.Kind.ERROR, "Error fetching Swagger API Metadata.");
       throw e;
