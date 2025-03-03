@@ -191,9 +191,14 @@ public class Oas3Processor extends AbstractSwaggerProcessor {
       case DateTimeSchema p -> TypeName.get(LocalDateTime.class);
       case UUIDSchema p -> TypeName.get(UUID.class);
       case MapSchema p -> TypeName.get(Map.class);
-      case ObjectSchema p -> ClassName.get("", generateModelDefinitions(name, p).name());
+      case ObjectSchema p -> {
+        if (nonNull(p.getProperties()) && !p.getProperties().isEmpty()) {
+          yield ClassName.get("", generateModelDefinitions(name, p).name());
+        } else {
+          yield TypeName.get(Object.class);
+        }
+      }
       default -> TypeName.get(String.class);
-
     };
   }
 
