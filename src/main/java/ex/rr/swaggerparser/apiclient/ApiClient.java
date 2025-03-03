@@ -14,6 +14,8 @@ public interface ApiClient {
 
   <T, B> T post(URI uri, B body, Map<String, String> headers, TypeReference<T> type);
 
+  <T> T post(URI uri, Map<String, String> headers, TypeReference<T> type);
+
   <T> T post(URI uri, Map<String, Object> formData, Map<String, String> headers, TypeReference<T> type);
 
   <T, B> T put(URI uri, B body, Map<String, String> headers, TypeReference<T> type);

@@ -10,6 +10,7 @@ import java.net.URI;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.stream.IntStream;
 
@@ -56,9 +57,9 @@ public class Oas3ClientGenerator extends AbstractClientGenerator {
 
   private Predicate<Collection<Parameter>> hasPathParams = it -> nonNull(it) && it.stream()
       .anyMatch(p -> TypeUtils.isInstance(p, PathParameter.class));
-
   private Predicate<Collection<Parameter>> hasQueryParams = it -> nonNull(it) && it.stream()
       .anyMatch(p -> TypeUtils.isInstance(p, QueryParameter.class));
+  private Predicate<Operation> hasRequestBody = it -> nonNull(it) && nonNull(it.getRequestBody());
 
   public TypeSpec generateClientDefiinition(Element element, OpenAPI openApi) {
     format = element.getAnnotation(SwaggerClient.class).format();
@@ -82,9 +83,12 @@ public class Oas3ClientGenerator extends AbstractClientGenerator {
     apiClient.addField(FieldSpec.builder(ApiClient.class, "apiClient", Modifier.PRIVATE, Modifier.FINAL).build());
 
     openApi.getPaths().forEach((pathName, path) -> {
-      if (nonNull(path.getGet())) {
-        apiClient.addMethod(genDef(pathName, HttpMethod.GET, path.getGet()));
-      }
+      Optional.ofNullable(path.getGet())
+          .ifPresent(op -> apiClient.addMethod(genDef(pathName, HttpMethod.GET, op)));
+      Optional.ofNullable(path.getPost())
+          .ifPresent(op -> apiClient.addMethod(genDef(pathName, HttpMethod.POST, op)));
+      Optional.ofNullable(path.getPut())
+          .ifPresent(op -> apiClient.addMethod(genDef(pathName, HttpMethod.PUT, op)));
     });
 
     return apiClient.build();
@@ -121,6 +125,21 @@ public class Oas3ClientGenerator extends AbstractClientGenerator {
       methodBody.add(".expand(pathParams)");
     }
     methodBody.add(".toUri()");
+
+    if (hasRequestBody.test(operation)) {
+      operation.getRequestBody().getContent().forEach((contentType, content) -> {
+        switch (contentType) {
+          case "application/json" -> {
+            var bodySchema = resolveSchemaType(
+                operation.getRequestBody().getContent().get("application/json").getSchema());
+            var field = ParameterSpec.builder(bodySchema, "body").build();
+            methodSpec.addParameter(field);
+            methodBody.add(", body");
+          }
+          default -> System.out.println(String.format("%s%n%s", contentType, content));
+        }
+      });
+    }
 
     if (nonNull(operation.getParameters())) {
       operation.getParameters()
